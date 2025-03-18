@@ -43,7 +43,7 @@ film_clean %>%
 # Exploratory data analysis {#sec-eda}
 
 ```{r}
-###
+##
 
 ```
 
