@@ -212,7 +212,7 @@ summary(stepwise_model)
 ```{r}
 
 # This code block presents the new model after adding the long_film variable, so you can compare it with the previous model.
-new_model <- glm(rating_binary ~ length + budget + votes + genre + long_film, data = film1, family = binomial)
+new_model <- glm(rating_binary ~  budget + votes + genre + long_film, data = film1, family = binomial)
 ```
 
 ## Multicollinearity Check (VIF)
