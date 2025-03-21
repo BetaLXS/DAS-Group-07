@@ -1,0 +1,256 @@
+---
+title: "Analysis of the properties influencing film rating over 7"
+subtitle: "student number: 3026884, 2995341, 2897872, 2971937"
+number-sections: true
+format: 
+  html:
+    embed-resources: true
+    code-tools: true
+  pdf: default
+editor_options: 
+  chunk_output_type: console
+execute:
+  echo: true
+  eval: true
+  warning: false
+  message: false
+---
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(caret)
+library(car)
+library(MASS)
+library(randomForest)
+library(glmnet)
+library(skimr)
+library(corrplot)
+library(psych)
+library(plotly)
+```
+
+## Introduction
+
+The goal of this analysis is to determine which film properties influence whether a movie is rated above 7 on IMDB. We will use a Generalized Linear Model (GLM) along with other machine learning models for comparison.
+
+## Data Loading and Cleaning
+
+```{r}
+film <- read.csv("dataset07.csv")
+
+# Check structure and missing values
+str(film)
+skim(film)
+
+# Remove missing values
+film <- film %>% drop_na()
+
+# Convert categorical variables
+film$genre <- as.factor(film$genre)
+```
+
+## Exploratory Data Analysis
+
+```{r}
+summary(film)
+
+#Histograms of IMDB ratings 
+ggplot(film, aes(x = rating)) +
+  geom_histogram(binwidth = 0.5, fill = "steelblue", color = "black") +
+  labs(x = "IMDB Rating", y = "Frequency", title = "Distribution of IMDB Ratings")
+
+```
+
+```{r}
+#Barplot of Film Counts by Genre
+ggplot(film, aes(x = factor(genre))) +
+  geom_bar(fill = "skyblue", color = "black") +
+  labs(x = "Genre", y = "Count of Films", title = "Count of Films by Genre")
+
+```
+
+```{r}
+#Scatterplot of Budget vs Rating
+ggplot(film, aes(x = budget, y = rating)) +
+  geom_point(color = "steelblue") +
+  labs(x = "Budget (Millions)", y = "IMDB Rating", title = "Rating vs Budget")+
+  geom_hline(yintercept = 7, linetype = "dashed", color = "red", size = 1)
+```
+
+```{r}
+#Scatterplot of Votes vs Rating
+VR1 <-ggplot(film, aes(x = votes, y = rating)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "Votes vs IMDB Rating", x = "Number of Votes", y = "IMDB Rating")+
+  geom_hline(yintercept = 7, linetype = "dashed", color = "red", size = 1)
+
+#Scatterplot  of Log(Votes) vs Rating
+VR2 <- ggplot(film, aes(x = log(votes), y = rating)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "Log(Votes) vs IMDB Rating", x = "Log(Votes)", y = "IMDB Rating")+
+  geom_hline(yintercept = 7, linetype = "dashed", color = "red", size = 1)
+
+VR <- subplot(VR1, VR2)
+VR
+```
+
+```{r}
+#Scatterplot of Film Length vs Rating
+LR1 <- ggplot(film, aes(x = length, y = rating)) +
+  geom_point(alpha = 0.5) +
+  labs(title = " Film Length vs IMDB Rating", x = " Film Length (Minutes)", y = "IMDB Rating")+
+  geom_hline(yintercept = 7, linetype = "dashed", color = "red", size = 1)
+
+#Scatterplot of log(Film Length) vs Rating
+LR2 <- ggplot(film, aes(x = log(length), y = rating)) +
+  geom_point(alpha = 0.5) +
+  labs(title = " log(Film Length) vs IMDB Rating", x = " Log(Film Length)", y = "IMDB Rating")+
+  geom_hline(yintercept = 7, linetype = "dashed", color = "red", size = 1)
+
+LR <- subplot(LR1, LR2)
+LR
+```
+
+```{r}
+#Boxplot of Year vs Rating by duration
+film$year_group <- cut(film$year, 
+                             breaks = c(1894, 1904, 1914, 1924, 1934, 1944, 1954, 1964, 1974, 1984, 1994,2006), 
+                             labels = c(1:11),right=FALSE)  
+ggplot(film, aes(x = year_group, y = rating, fill = year_group)) +
+  geom_boxplot(na.rm = TRUE) +
+  labs(title = "IMDB Rating by Year Group", x = "Year Group", y = "IMDB Rating") +
+  geom_hline(yintercept = 7, linetype = "dashed", color = "red", size = 1)+
+  scale_fill_discrete(name = "Year Group", 
+                      labels = c("1894-1904", 
+                                 "1904-1914", 
+                                 "1914-1924", 
+                                 "1924-1934", 
+                                 "1934-1944", 
+                                 "1944-1954", 
+                                 "1954-1964", 
+                                 "1964-1974", 
+                                 "1974-1984", 
+                                 "1984-1994", 
+                                 "1994-2005")) 
+
+```
+
+## Creating the Binary Outcome Variable
+
+```{r}
+film$rating_binary <- ifelse(film$rating > 7, 1, 0)
+```
+
+## Correlation Analysis
+
+```{r}
+library(GGally)
+library(dplyr)
+
+# Select only numeric variables, excluding 'film_id' and 'rating'
+film_numeric <- film %>%
+  dplyr::select(where(is.numeric)) %>%
+  dplyr::select(-film_id, -rating)  # Remove 'film_id' and 'rating'
+
+# Create the correlation plot
+ggpairs(film_numeric, cardinality_threshold = NULL, title = "Correlation Plot of Numeric Features")
+
+library(corrplot)
+# Compute correlation matrix without 'film_id' and 'rating'
+cor_matrix <- cor(film_numeric , use = "complete.obs")
+
+# Plot the correlation matrix as a heatmap
+corrplot(cor_matrix, 
+         method = "color",      # Use color shading
+         type = "upper",        # Show only upper triangle
+         tl.cex = 0.8,          # Adjust text size
+         tl.col = "black",      # Label color
+         addCoef.col = "black", # Add correlation values in black
+         number.cex = 0.8)      # Adjust correlation value size
+```
+
+## Variable Selection
+
+```{r}
+# Univariate Logistic Regression
+variables <- c("year", "length", "budget", "votes")
+univariate_results <- sapply(variables, function(var) {
+  model <- glm(rating_binary ~ get(var), data = film, family = binomial)
+  summary(model)$coefficients[2,4]
+})
+univariate_results
+```
+
+## Stepwise Regression
+
+```{r}
+full_model <- glm(rating_binary ~ year + length + budget + votes + genre, data = film, family = binomial)
+stepwise_model <- stepAIC(full_model, direction = "both")
+summary(stepwise_model)
+```
+
+## Multicollinearity Check (VIF)
+
+```{r}
+vif_values1 <- vif(full_model)
+vif_values1
+
+vif_values2 <- vif(stepwise_model)
+vif_values2
+
+```
+
+## Principal Component Analysis (no need)
+
+## Model Comparison
+
+```{r}
+# Logistic Regression
+full_model <- glm(rating_binary ~ year + length + budget + votes + genre, data = film, family = binomial)
+summary(full_model)
+
+log_full_model <- glm(rating_binary ~ year + log(length) + budget + log(votes) + genre, data = film, family = binomial)
+summary(log_full_model)
+
+```
+
+## Remove outliers
+
+```{r}
+plot(log_full_model,which=5)
+
+log_full_model <- glm(rating_binary ~ year + log(length) + budget + log(votes) + genre, data = film[-2035,], family = binomial)
+summary(log_full_model)
+
+plot(log_full_model,which=5)
+
+log_full_model <- glm(rating_binary ~ year + log(length) + budget + log(votes) + genre, data = film[-c(2035,320,697),], family = binomial)
+summary(log_full_model)
+
+plot(log_full_model,which=5)
+
+film <- film[-c(2035,320,697),]
+```
+
+## Future work
+
+```{r}
+
+x <- model.matrix(rating_binary ~ year + log(length) + budget + log(votes) + genre, data = film)[,-1]
+y <- film$rating_binary
+
+# Ridge Regression
+ridge_model <- cv.glmnet(x, y, alpha = 0, family = "binomial")
+coef(ridge_model, s = "lambda.min")
+
+# Lasso Regression
+lasso_model <- cv.glmnet(x, y, alpha = 1, family = "binomial")
+coef(lasso_model, s = "lambda.min")
+```
+
+## Conclusion
