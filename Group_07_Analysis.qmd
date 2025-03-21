@@ -199,10 +199,8 @@ summary(pca)
 logit_model <- glm(rating_binary ~ year + budget + votes, data = film, family = binomial)
 summary(logit_model)
 
-# Random Forest
-rf_model <- randomForest(rating_binary ~ year + budget + votes, data = film, ntree = 500, importance = TRUE)
-print(rf_model)
-varImpPlot(rf_model)
+# Ridge Regression
+
 
 # Lasso Regression
 x <- model.matrix(rating_binary ~ year + budget + votes, data = film)[,-1]
@@ -210,6 +208,28 @@ y <- film$rating_binary
 lasso_model <- cv.glmnet(x, y, alpha = 1, family = "binomial")
 coef(lasso_model, s = "lambda.min")
 ```
+
+
+```{r}
+#logistic GLM
+logistic_model <- glm(rating_above_7 ~ year+budget + log(length) + log(votes) + genre, data = film, family = binomial(link = "logit"))
+summary(logistic_model)
+plot(logistic_model,which=5)
+
+points_to_label <- c(2116, 1922, 12, 337, 731)
+leverage <- hatvalues(logistic_model)
+residuals <- residuals(logistic_model, type = "deviance")
+text(leverage[points_to_label], residuals[points_to_label], 
+     labels = points_to_label, pos = 4, cex = 0.7, col = "red")
+
+```
+
+```{r}
+logistic_model <- glm(rating_above_7 ~ year+budget + log(length) + log(votes) + genre, data = film_clean[-c(2116,1922,12,337,731),], family = binomial(link = "logit"))
+summary(logistic_model)
+plot(logistic_model,which=5)
+```
+
 
 ## Model Evaluation and Prediction
 
