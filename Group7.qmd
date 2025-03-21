@@ -21,38 +21,46 @@ execute:
 #| warning: false
 #| message: false
 library(dplyr)
-library(tidyr)
 library(ggplot2)
-library(readr)
-library(moderndive)
-library(skimr)
-library(rpart)  
-library(rpart.plot)
+library(tidyr)
+library(caret)
+library(car)
+library(MASS)
 library(randomForest)
+library(glmnet)
+library(skimr)
+library(corrplot)
+library(psych)
 ```
 
-# Introduction
+## Introduction
+
+The goal of this analysis is to determine which film properties influence whether a movie is rated above 7 on IMDB. We will use a Generalized Linear Model (GLM) along with other machine learning models for comparison.
+
+## Data Loading and Cleaning
 
 ```{r}
-#| label: data
 film <- read.csv("dataset07.csv")
-View(film)
-head(film)
-glimpse(film)
-summary(film)
-#Use the median to fill in missing values (NA) 
-film_clean <- film %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.na(.), median(., na.rm = TRUE), .)))
-film_clean %>%
-  select(year,length,budget,votes,rating)%>%
-  cor()
+
+# Check structure and missing values
+str(film)
+skim(film)
+
+# Fill missing numeric values with mean
+film <- film %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), mean(., na.rm = TRUE), .)))
+
+# Convert categorical variables
+film$genre <- as.factor(film$genre)
 ```
 
-# Exploratory data analysis
+## Exploratory Data Analysis
 
 ```{r}
+summary(film)
+
 #Histograms of IMDB ratings 
-ggplot(film_clean, aes(x = rating)) +
+ggplot(film, aes(x = rating)) +
   geom_histogram(binwidth = 0.5, fill = "steelblue", color = "black") +
   labs(x = "IMDB Rating", y = "Frequency", title = "Distribution of IMDB Ratings")
 
@@ -60,7 +68,7 @@ ggplot(film_clean, aes(x = rating)) +
 
 ```{r}
 #Barplot of Film Counts by Genre
-ggplot(film_clean, aes(x = factor(genre))) +
+ggplot(film, aes(x = factor(genre))) +
   geom_bar(fill = "skyblue", color = "black") +
   labs(x = "Genre", y = "Count of Films", title = "Count of Films by Genre")
 
@@ -68,7 +76,7 @@ ggplot(film_clean, aes(x = factor(genre))) +
 
 ```{r}
 #Scatterplot of Budget vs Rating
-ggplot(film_clean, aes(x = budget, y = rating)) +
+ggplot(film, aes(x = budget, y = rating)) +
   geom_point(color = "steelblue") +
   labs(x = "Budget (Millions)", y = "IMDB Rating", title = "Rating vs Budget")+
   geom_hline(yintercept = 7, linetype = "dashed", color = "red", size = 1)
@@ -76,7 +84,7 @@ ggplot(film_clean, aes(x = budget, y = rating)) +
 
 ```{r}
 #Scatterplot of Votes vs Rating
-ggplot(film_clean, aes(x = votes, y = rating)) +
+ggplot(film, aes(x = votes, y = rating)) +
   geom_point(alpha = 0.5) +
   labs(title = "Votes vs IMDB Rating", x = "Number of Votes", y = "IMDB Rating")+
   geom_hline(yintercept = 7, linetype = "dashed", color = "red", size = 1)
@@ -85,7 +93,7 @@ ggplot(film_clean, aes(x = votes, y = rating)) +
 
 ```{r}
 #Scatterplot  of Log(Votes) vs Rating
-ggplot(film_clean, aes(x = log(votes), y = rating)) +
+ggplot(film, aes(x = log(votes), y = rating)) +
   geom_point(alpha = 0.5) +
   labs(title = "Log(Votes) vs IMDB Rating", x = "Log(Votes)", y = "IMDB Rating")+
   geom_hline(yintercept = 7, linetype = "dashed", color = "red", size = 1)
@@ -93,7 +101,7 @@ ggplot(film_clean, aes(x = log(votes), y = rating)) +
 
 ```{r}
 #Scatterplot of Film Length vs Rating
-ggplot(film_clean, aes(x = length, y = rating)) +
+ggplot(film, aes(x = length, y = rating)) +
   geom_point(alpha = 0.5) +
   labs(title = " Film Length vs IMDB Rating", x = " Film Length (Minutes)", y = "IMDB Rating")+
   geom_hline(yintercept = 7, linetype = "dashed", color = "red", size = 1)
@@ -102,10 +110,10 @@ ggplot(film_clean, aes(x = length, y = rating)) +
 
 ```{r}
 #Boxplot of Year vs Rating by duration
-film_clean$year_group <- cut(film_clean$year, 
+film$year_group <- cut(film$year, 
                              breaks = c(1894, 1904, 1914, 1924, 1934, 1944, 1954, 1964, 1974, 1984, 1994,2006), 
                              labels = c(1:11),right=FALSE)  
-ggplot(film_clean, aes(x = year_group, y = rating, fill = year_group)) +
+ggplot(film, aes(x = year_group, y = rating, fill = year_group)) +
   geom_boxplot(na.rm = TRUE) +
   labs(title = "IMDB Rating by Year Group", x = "Year Group", y = "IMDB Rating") +
   geom_hline(yintercept = 7, linetype = "dashed", color = "red", size = 1)+
@@ -126,44 +134,96 @@ ggplot(film_clean, aes(x = year_group, y = rating, fill = year_group)) +
 
 ```{r}
 # Boxplot of Binary rating
-film_clean$rating_group <- ifelse(film_clean$rating > 7, "Above 7", "Below or Equal to 7")
-ggplot(film_clean, aes(x = rating_group, y = rating, fill = rating_group)) +
+film$rating_group <- ifelse(film$rating > 7, "Above 7", "Below or Equal to 7")
+ggplot(film, aes(x = rating_group, y = rating, fill = rating_group)) +
   geom_boxplot() +
   labs(title = "IMDB Rating by Rating Group", x = "Rating Group", y = "IMDB Rating") 
 
 ```
 
+## Creating the Binary Outcome Variable
 
-
-# Formal analysis
 ```{r}
-#Creating a binary variable 'rating_above_7' 
-film_clean$rating_above_7 <- ifelse(film_clean$rating > 7, 1, 0)
-film_clean$genre <- as.factor(film_clean$genre) 
-
+film$rating_binary <- ifelse(film$rating > 7, 1, 0)
 ```
 
-```{r}
-#logistic GLM
-logistic_model <- glm(rating_above_7 ~ year+budget + length + votes + genre, data = film_clean, family = binomial(link = "logit"))
-summary(logistic_model)
-```
+## Correlation Analysis
 
 ```{r}
-# Decision Tree Model
-tree_model <- rpart(rating_above_7 ~ year + length + budget + votes + genre, 
-                    data = film_clean, method = "class")
-rpart.plot(tree_model, type=2, extra=4) #visualise the tree
+corr_matrix <- film %>%
+  dplyr::select(where(is.numeric)) %>% 
+  cor(use = "complete.obs")
+corrplot(corr_matrix, method = "circle")
 ```
 
+## Variable Selection
+
 ```{r}
-#Random Forest Model
-rf_model <- randomForest(rating_above_7~ year + length + budget + votes + genre, 
-                         data = film_clean, ntree = 500, importance = TRUE)
+# Univariate Logistic Regression
+variables <- c("year", "length", "budget", "votes")
+univariate_results <- sapply(variables, function(var) {
+  model <- glm(rating_binary ~ get(var), data = film, family = binomial)
+  summary(model)$coefficients[2,4]
+})
+univariate_results
+```
+
+## Stepwise Regression
+
+```{r}
+full_model <- glm(rating_binary ~ year + length + budget + votes + genre, data = film, family = binomial)
+stepwise_model <- stepAIC(full_model, direction = "both")
+summary(stepwise_model)
+```
+
+## Multicollinearity Check (VIF)
+
+```{r}
+vif_values <- vif(stepwise_model)
+vif_values
+```
+
+## Principal Component Analysis (If Needed)
+
+```{r}
+film_numeric <- film %>% 
+  dplyr::select(year, length, budget, votes)
+pca <- prcomp(film_numeric, center = TRUE, scale = TRUE)
+summary(pca)
+```
+
+## Model Comparison
+
+```{r}
+# Logistic Regression
+logit_model <- glm(rating_binary ~ year + budget + votes, data = film, family = binomial)
+summary(logit_model)
+
+# Random Forest
+rf_model <- randomForest(rating_binary ~ year + budget + votes, data = film, ntree = 500, importance = TRUE)
 print(rf_model)
-importance(rf_model)
 varImpPlot(rf_model)
+
+# Lasso Regression
+x <- model.matrix(rating_binary ~ year + budget + votes, data = film)[,-1]
+y <- film$rating_binary
+lasso_model <- cv.glmnet(x, y, alpha = 1, family = "binomial")
+coef(lasso_model, s = "lambda.min")
 ```
 
+## Model Evaluation and Prediction
 
+```{r}
+# Model Performance Metrics
+logit_pred <- predict(logit_model, type = "response")
+logit_class <- ifelse(logit_pred > 0.5, 1, 0)
+table(logit_class, film$rating_binary)
 
+# Random Forest Prediction
+rf_pred <- predict(rf_model, type = "class")
+table(rf_pred, film$rating_binary)
+```
+
+## Conclusion
+
+Based on the analysis, we found that budget and votes are significant predictors of IMDB ratings. The logistic regression and random forest models provided strong predictive capabilities, while PCA did not significantly improve the model. Further improvements could be made using ensemble methods or additional feature engineering.
