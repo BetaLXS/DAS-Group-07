@@ -55,8 +55,21 @@ film_clean %>%
 ggplot(film_clean, aes(x = rating)) +
   geom_histogram(binwidth = 0.5, fill = "steelblue", color = "black") +
   labs(x = "IMDB Rating", y = "Frequency", title = "Distribution of IMDB Ratings")
-
 ```
+
+
+```{r}
+ggplot(film_clean, aes(x = log(length))) +
+  geom_histogram(binwidth = 0.5, fill = "steelblue", color = "black") +
+  labs(x = "IMDB Rating", y = "Frequency", title = "Distribution of IMDB Ratings")
+```
+
+```{r}
+ggplot(film_clean, aes(x = log(votes))) +
+  geom_histogram(binwidth = 0.5, fill = "steelblue", color = "black") +
+  labs(x = "IMDB Rating", y = "Frequency", title = "Distribution of IMDB Ratings")
+```
+
 
 ```{r}
 #Barplot of Film Counts by Genre
@@ -147,9 +160,27 @@ film_clean$genre <- as.factor(film_clean$genre)
 
 ```{r}
 #logistic GLM
-logistic_model <- glm(rating_above_7 ~ year+budget + length + votes + genre, data = film_clean, family = binomial(link = "logit"))
+logistic_model <- glm(rating_above_7 ~ year+budget + log(length) + log(votes) + genre, data = film_clean, family = binomial(link = "logit"))
 summary(logistic_model)
+plot(logistic_model,which=5)
+
+points_to_label <- c(2116, 1922, 12, 337, 731)
+leverage <- hatvalues(logistic_model)
+residuals <- residuals(logistic_model, type = "deviance")
+text(leverage[points_to_label], residuals[points_to_label], 
+     labels = points_to_label, pos = 4, cex = 0.7, col = "red")
+
 ```
+
+```{r}
+
+logistic_model <- glm(rating_above_7 ~ year+budget + log(length) + log(votes) + genre, data = film_clean[-c(2116,1922,12,337,731),], family = binomial(link = "logit"))
+summary(logistic_model)
+plot(logistic_model,which=5)
+
+```
+
+
 
 
 ```{r}
@@ -157,6 +188,7 @@ summary(logistic_model)
 tree_model <- rpart(rating_above_7 ~ year + length + budget + votes + genre, 
                     data = film_clean, method = "class")
 rpart.plot(tree_model, type=2, extra=4) #visualise the tree
+
 ```
 
 ```{r}
