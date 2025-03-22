@@ -1,6 +1,6 @@
 ---
 title: "Analysis of the properties influencing film rating over 7"
-subtitle: "student number: 3026884, 2995341, 2897872, 2971937"
+subtitle: "student number: 3026884, 2995341, 2897872, 2971937, 3048441"
 number-sections: true
 format: 
   html:
@@ -31,14 +31,17 @@ library(glmnet)
 library(skimr)
 library(corrplot)
 library(psych)
-library(plotly)
+library(GGally)
+library(gridExtra)
 ```
 
 ## Introduction
 
-The goal of this analysis is to determine which film properties influence whether a movie is rated above 7 on IMDB. We will use a Generalized Linear Model (GLM) along with other machine learning models for comparison.
+The goal of this analysis is to identify the key properties of films that influence whether a movie is rated above 7 on IMDB. We used a Generalized Linear Model (GLM) to analyze the relationship between various film characteristics, such as year, length, budget, votes, and genre, and their impact on the binary classification of IMDB ratings. Additionally, we employed other machine learning models, including Ridge and Lasso regressions, to optimize and compare model performance.
 
 ## Data Loading and Cleaning
+
+First, we loaded the dataset 'dataset07.csv' and used the 'str()' and 'skim()' functions to examine the structure of the data and check for missing values.
 
 ```{r}
 film <- read.csv("dataset07.csv")
@@ -46,7 +49,11 @@ film <- read.csv("dataset07.csv")
 # Check structure and missing values
 str(film)
 skim(film)
+```
 
+Then, as missing values mainly appeared in the length column, which has a small proportion of missing data and cannot be imputed by mean or median, we opted to remove the rows with missing values. Finally, the genre column was converted to a factor type for further analysis.
+
+```{r}
 # Remove missing values
 film <- film %>% drop_na()
 
@@ -56,15 +63,22 @@ film$genre <- as.factor(film$genre)
 
 ## Exploratory Data Analysis
 
+Using the summary() function, we provided a basic statistical overview of the dataset to understand the distribution of various variables. Then, we explored the relationships between different variables and IMDB ratings through multiple visualizations for deeper insights:
+
 ```{r}
 summary(film)
+```
 
+Based on the summary results, the movie length ranges from a minimum of 1 minute to a maximum of 399 minutes, and the number of votes varies from 5 to 103,854, indicating a significant range in both variables. Additionally, the number of films across different genres shows considerable variation.
+
+```{r}
 #Histograms of IMDB ratings 
 ggplot(film, aes(x = rating)) +
   geom_histogram(binwidth = 0.5, fill = "steelblue", color = "black") +
   labs(x = "IMDB Rating", y = "Frequency", title = "Distribution of IMDB Ratings")
-
 ```
+
+The histogram above shows the frequency distribution of IMDB ratings. The bimodal distribution of IMDB ratings reveals a clear distinction between the lower range (2.5-5) and the higher range (7-7.5). This distribution pattern supports the use of a rating of 7 as a threshold for binary classification, as it effectively separates movies with low ratings from those with high ratings. By using a score of 7 as the cutoff, we can clearly categorize the films into two groups: those with lower ratings and those with higher ratings, which aligns well with the observed data distribution.
 
 ```{r}
 #Barplot of Film Counts by Genre
@@ -82,6 +96,10 @@ ggplot(film, aes(x = budget, y = rating)) +
   geom_hline(yintercept = 7, linetype = "dashed", color = "red", size = 1)
 ```
 
+From the plot, it appears that movies with ratings above 7 tend to have a slight rightward shift on the X-axis (budget) compared to those with ratings below 7. While there is no clear linear relationship, higher-rated movies seem to be associated with higher budgets, causing a slight rightward shift in their budget distribution compared to lower-rated movies.
+
+Based on the summary, both vote and length have wide distributions. To make the values more concentrated, the exploration of log(votes) and log(length) was conducted.
+
 ```{r}
 #Scatterplot of Votes vs Rating
 VR1 <-ggplot(film, aes(x = votes, y = rating)) +
@@ -95,9 +113,10 @@ VR2 <- ggplot(film, aes(x = log(votes), y = rating)) +
   labs(title = "Log(Votes) vs IMDB Rating", x = "Log(Votes)", y = "IMDB Rating")+
   geom_hline(yintercept = 7, linetype = "dashed", color = "red", size = 1)
 
-VR <- subplot(VR1, VR2)
-VR
+grid.arrange(VR1, VR2, ncol = 2)
 ```
+
+The left plot shows the relationship between votes and ratings, with a scattered distribution, especially at lower vote counts. The right plot, using log-transformed votes, reduces the influence of extreme vote counts, resulting in a more compact distribution. However, despite the transformation, there is still no significant correlation between ratings and votes. The log transformation helps manage the large range of vote counts but does not improve the association between ratings and votes.
 
 ```{r}
 #Scatterplot of Film Length vs Rating
@@ -112,9 +131,10 @@ LR2 <- ggplot(film, aes(x = log(length), y = rating)) +
   labs(title = " log(Film Length) vs IMDB Rating", x = " Log(Film Length)", y = "IMDB Rating")+
   geom_hline(yintercept = 7, linetype = "dashed", color = "red", size = 1)
 
-LR <- subplot(LR1, LR2)
-LR
+grid.arrange(LR1, LR2, ncol = 2)
 ```
+
+The left plot shows the relationship between film length and IMDB ratings, with a scattered distribution, especially for longer films with a wider range of ratings. The right plot, using log-transformed film length, reduces the influence of extreme values, resulting in a more compact distribution. Similar to the plot 'Votes vs Rating', despite the transformation, there is still no significant correlation between rating and film length. However, from the plot, we can discern that shorter films are more likely to receive higher ratings.
 
 ```{r}
 #Boxplot of Year vs Rating by duration
@@ -140,7 +160,11 @@ ggplot(film, aes(x = year_group, y = rating, fill = year_group)) +
 
 ```
 
+The boxplot shows the distribution of IMDB ratings across different year groups. Over time, the rating distribution shifts from concentrated to more dispersed, particularly after 1974, where the median and interquartile range show greater variability. Overall, films after 1974 tend to have higher ratings with more spread-out distributions.
+
 ## Creating the Binary Outcome Variable
+
+After analyzing the relationship between the explanatory variables and the continuous variable rating, we created a binary classification variable column 'rating_binary', with 7 as the threshold, to be used as the response variable.
 
 ```{r}
 film$rating_binary <- ifelse(film$rating > 7, 1, 0)
@@ -148,10 +172,8 @@ film$rating_binary <- ifelse(film$rating > 7, 1, 0)
 
 ## Correlation Analysis
 
+The first plot is the Correlation Plot of Numeric Features (scatterplot matrix), which shows the relationships between various numeric variables. A significant observation is the strong negative correlation between film length and binary rating (Corr: -0.49), indicating that longer films tend to receive lower ratings. Additionally, there is a positive correlation between budget and binary rating (Corr: 0.25), suggesting that movies with more budget generally receive higher ratings. At the same time, the correlation plot shows that the correlations between variables are not high, indicating the independence of the variables. The second plot is the Correlation Heatmap of Numeric Features, which further quantifies these relationships. The heatmap clearly illustrates the correlation coefficients between the binary rating and film length.
 ```{r}
-library(GGally)
-library(dplyr)
-
 # Select only numeric variables, excluding 'film_id' and 'rating'
 film_numeric <- film %>%
   dplyr::select(where(is.numeric)) %>%
@@ -160,7 +182,6 @@ film_numeric <- film %>%
 # Create the correlation plot
 ggpairs(film_numeric, cardinality_threshold = NULL, title = "Correlation Plot of Numeric Features")
 
-library(corrplot)
 # Compute correlation matrix without 'film_id' and 'rating'
 cor_matrix <- cor(film_numeric , use = "complete.obs")
 
@@ -176,6 +197,8 @@ corrplot(cor_matrix,
 
 ## Variable Selection
 
+We can also analyze the relationship between different variables and the binary rating using univariate logistic regression. The results show that film length (p-value: 1.84e-92) and budget (p-value: 1.77e-31) have a statistically significant relationship with the binary rating, highlighting their importance in predicting the rating. Although year (p-value: 0.678) and votes (p-value: 0.235) show weaker and non-significant associations with the binary rating, the significance of film length and budget underscores their strong impact on the prediction of the rating. The results are consistent with those derived from the previous plots.
+
 ```{r}
 # Univariate Logistic Regression
 variables <- c("year", "length", "budget", "votes")
@@ -188,13 +211,21 @@ univariate_results
 
 ## Stepwise Regression
 
+To further optimize the model and identify significant predictors of the binary rating, we conducted a stepwise regression analysis. We first build generalized linear model as follows:
+
 ```{r}
 full_model <- glm(rating_binary ~ year + length + budget + votes + genre, data = film, family = binomial)
 stepwise_model <- stepAIC(full_model, direction = "both")
 summary(stepwise_model)
 ```
 
+Based on the results of the stepwise regression analysis, film length and budget are significant predictors of the binary IMDB rating. The negative coefficient for film length (0.5129) indicates that longer films are more likely to receive lower ratings. The positive coefficient for budget (0.4962) suggests that films with higher budgets are more likely to receive higher ratings. After controlling for other variables, the number of votes shows a positive correlation with the binary rating (p = 0.0309), but this association is weaker and less significant compared to other variables. Although the stepwise regression analysis suggested removing the year variable, the change in AIC was only a reduction of 1, indicating a minimal difference, so the year variable is retained in the final model. Additionally, certain genre variables, such as animation, drama, and documentary, showed relatively insignificant impacts on the binary rating.
+
+It is worth noting that the p-values in the 'summary()' results are generally significant. However, this is due to the fact that after applying the AIC stepwise selection, the p-values primarily reflect the contribution of the explanatory variables. In this case, the variables in the data, as seen in the exploratory data analysis, show relatively low overall correlation with the response variable. Therefore, this explains why the p-values appear significant despite the weak associations observed between the predictors and the binary IMDB ratings.
+
 ## Multicollinearity Check (VIF)
+
+Below is the multicollinearity check for the model. Since all VIF values are below 5, there is no multicollinearity, and the Principal Component Analysis is not required.
 
 ```{r}
 vif_values1 <- vif(full_model)
@@ -205,9 +236,9 @@ vif_values2
 
 ```
 
-## Principal Component Analysis (no need)
-
 ## Model Comparison
+
+Compared to the original model, the new model significantly improves the interpretability and significance of film length and votes by applying log transformations. The AIC value of the new model drops from 1311.0 to 1243.9, indicating better fit. Therefore, the log-transformed model outperforms the original in handling non-linear relationships.
 
 ```{r}
 # Logistic Regression
@@ -220,6 +251,8 @@ summary(log_full_model)
 ```
 
 ## Remove outliers
+
+We notice potential issues with outliers in the dataset that could affect the model's accuracy and stability. To address this, we focus on identifying and removing influential data points. By doing so, we aim to improve the model's robustness and ensure more reliable estimates.
 
 ```{r}
 plot(log_full_model,which=5)
@@ -237,7 +270,13 @@ plot(log_full_model,which=5)
 film <- film[-c(2035,320,697),]
 ```
 
+We analyze the Cook's distance plot for the logistic regression model and identify outliers with high Cook's distances (2035, 320, and 697). After removing these points, the distribution of data becomes clearer, and the model's estimates are less influenced by extreme values. The AIC value improves from 1243.9 to 1180.2, showing better model fit after excluding the outliers.
+
+In conclusion, removing the outliers results in a more stable and reliable model, as reflected in the improved AIC and adjusted model coefficients.
+
 ## Future work
+
+In the previous analysis, we performed multiple model fittings and validations to ensure that the selected model effectively predicts the binary classification of ratings. To further optimize model performance, we introduced two common regularization methods---Ridge regression and Lasso regression. These methods address multicollinearity and perform feature selection by regularizing the coefficients of the model.
 
 ```{r}
 
@@ -253,4 +292,14 @@ lasso_model <- cv.glmnet(x, y, alpha = 1, family = "binomial")
 coef(lasso_model, s = "lambda.min")
 ```
 
+The coefficients in the Ridge regression are all non-zero, indicating that Ridge regression tends to shrink the coefficients rather than completely eliminate them. The model results show that year (-0.00074) and log(length) (-1.37) have a negative impact on the rating, while budget (0.295) and log(votes) (0.017) have a positive impact. Among these, the small coefficient of year suggests a minor influence, while the larger coefficient of budget indicates a strong relationship with the outcome. Among the categorical variables, genreDocumentary (3.106) and genreShort (2.342) have a significant positive effect on the rating.
+
+Unlike Ridge regression, Lasso regression uses L1 regularization, which can shrink some coefficients to zero, effectively performing feature selection. In this case, the coefficient for year is completely eliminated, indicating its minimal contribution to the model. The coefficient for budget is 0.529, showing a significant positive correlation with the rating, while log(length) (-3.335) has a significant negative correlation. As for the genre variable, similar to the Ridge regression results, genreDocumentary has the most significant impact on the rating, with a coefficient of 4.7.
+
+In summary, the two regressions are generally consistent in the direction of variable influence, but Lasso regression simplifies the model through variable selection, allowing the model to focus on the most relevant features.
+
 ## Conclusion
+
+We use a Generalized Linear Model (GLM) as the baseline and compare it with a model where certain variables are log-transformed, further eliminating the influence of outliers. Finally, Ridge regression and Lasso regression are used for validation and selection. Our analysis finds that film length and budget are significant predictors of the binary rating. Specifically, longer films tend to receive lower ratings, while higher-budget films are more likely to receive higher ratings. Additionally, certain genres, such as documentary and short films, show a stronger positive impact on the ratings compared to others.
+
+In total, The use of log-transformed variables and outlier removal improved the model's accuracy, and regularization techniques, including Ridge and Lasso regression, helped simplify the model and select the most impactful features. For further research, we can investigate whether the rating influences for similar films are comparable, and add additional features such as actor popularity and film aspect ratio to further optimize the model and improve accuracy.
